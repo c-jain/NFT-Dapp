@@ -1,6 +1,7 @@
 import "./app.css";
 import Web3 from "web3";
 import randomGraphTokenArtifact from "../../build/contracts/RandomGraphToken.json";
+import simpleExchangeArtifact from "../../build/contracts/SimpleExchange.json";
 
 const ipfsAPI = require('ipfs-api');
 const ipfs = ipfsAPI({host: 'ipfs.infura.io', port: '5001', protocol: 'https'});
@@ -9,6 +10,7 @@ const App = {
   web3: null,
   account: null,
   randomGraphToken: null,
+  simpleExchange: null,
   contractAddress: null,
 
   start: async function() {
@@ -24,35 +26,105 @@ const App = {
         deployedNetwork.address,
       );
 
+      const deployedNetwork1 = simpleExchangeArtifact.networks[networkId];
+      this.contractAddress1 = deployedNetwork1.address;
+      this.simpleExchange = new web3.eth.Contract(
+        simpleExchangeArtifact.abi,
+        deployedNetwork1.address,
+      );
+
       // get accounts
       const accounts = await web3.eth.getAccounts();
       this.account = accounts[0];
 
-      //this.temp();
+      await this.renderToken();
+      
     } catch (error) {
+      console.log(error);
       console.error("Could not connect to contract or chain.");
     }
   },
 
-  createSVG: async function() {
-    $(".create-token").click(function(event) {
-      var blob = saveSVG();
-      console.log(blob);
-      var reader = new window.FileReader();
-      reader.readAsArrayBuffer(blob);
-      setTimeout(function() {
-        var val = Buffer.from(reader.result);
-        const data = {path: 'graph.svg', content: val}
-        ipfs.add(data, {wrapWithDirectory: true})
-        .then((response) => {
-          console.log(response);
-          uploadJSONMetaData("https://ipfs.io/ipfs/" + response[1].hash + "/graph.svg");
-        })
-      }, 5000);
-    });
+  renderToken: async function() {
+    const { web3 } = this;
+    if(new URLSearchParams(window.location.search).get('filter') === 'owned') {
+      App.renderExchangeDetails();
+      const { balanceOf } = this.randomGraphToken.methods;
+      var balance = await balanceOf(this.account).call();
+      if(balance == 0) {
+        $("#nft-list").addClass("alert alert-danger").html("You don't have any tokens. Create one now!");
+      } else {
+        for(var i=0; i < balance; i++) {
+          const { tokenOfOwnerByIndex } = this.randomGraphToken.methods;
+          var id = await tokenOfOwnerByIndex(this.account, i).call();
+          const { tokenURI } = this.randomGraphToken.methods;
+          var uri = await tokenURI(id).call();
+          setTimeout(function() {
+            $.getJSON(uri, function(data) {
+              App.displayToken(id, data, uri);
+            });
+          }, 5000);
+        }
+      }
+    } else {
+        $("#approve-div").hide();
+        const { totalSupply } = this.randomGraphToken.methods;
+        var numberOfNFTs = await totalSupply().call();
+        for(var i=0; i<numberOfNFTs; i++) {
+          const { tokenByIndex } = this.randomGraphToken.methods;
+          var id = await tokenByIndex(i).call();
+          const { tokenURI } = this.randomGraphToken.methods;
+          var uri = await tokenURI(id).call();
+          setTimeout(function() {
+            $.getJSON(uri, function(data) {
+              App.displayToken(id, data, uri);
+            });
+          }, 5000);
+        }
+    }
+  },
 
-    function uploadJSONMetaData(imageURL) {
-      var jsonData = {
+  renderExchangeDetails: async function() {
+    const { web3 } = this;
+    const { isApprovedForAll } = this.randomGraphToken.methods;
+    console.log(App.simpleExchange.address);
+    /*var approved = await isApprovedForAll(this.account, App.simpleExchange.address).call();
+    if(approved == true) {
+      $("#msg").addClass("alert alert-success").html("You have approved the exchange to sell tokens on your behalf!");
+      $("#approve-div").hide();
+    } else {
+      $("#msg").addClass("alert alert-danger").html("Approve the exchange to sell tokens on your behalf");
+    }*/
+  },
+
+  displayToken: async function(tokenId, metaData, uri) {
+    var node = $("<div/>");
+    node.addClass("col-sm-3 text-center col-margin-bottom-1 product");
+    node.append("<img src='" + metaData.properties.image.description + "' />");
+    node.append("<a href='" + metaData.properties.image.description + "' target='_blank'>Full Size</a>");
+    node.append("<br>");
+    node.append("<a href='" + uri + "' target='_blank'>Metadata</a>");
+    $("#nft-list").append(node);
+  },
+
+  createNFT: async function() {
+    var blob = saveSVG();
+    console.log(blob);
+    var reader = new window.FileReader();
+    reader.readAsArrayBuffer(blob);
+    setTimeout(function() {
+      var val = Buffer.from(reader.result);
+      const data = {path: 'graph.svg', content: val}
+      ipfs.add(data, {wrapWithDirectory: true})
+      .then((response) => {
+        console.log(response);
+        App.uploadJSONMetaData("https://ipfs.io/ipfs/" + response[1].hash + "/graph.svg"); 
+      })
+    }, 5000);  
+  },
+
+  uploadJSONMetaData: async function(imageURL) {
+      let jsonData = {
         "title": "Asset Metadata",
         "type": "object",
         "properties": {
@@ -70,69 +142,66 @@ const App = {
             }
         }
       }
-      ipfs.add(Buffer.from(JSON.stringify(jsonData)))
-      .then((response) => {
-        console.log(response);
-        createToken("https://ipfs.io/ipfs/" + response[0].hash);
+      ipfs.add(Buffer.from(JSON.stringify(jsonData))).then(function(value) {
+        console.log("hash",value);
+        App.createToken("https://ipfs.io/ipfs/" + value[0].hash);
       });
-    }
+    },
 
-    function parseGraphAttributes() {
-     var e = document.getElementById("graph-type");
-     var graphType = e.options[e.selectedIndex].value;
-     var charge = $("#charge-dist").html();
-     var linkDistance = $("#link-dist").html();
-     var textFields = $("#params input");
-     var r = null;
-     var h = null;
-     var n = null;
-     var mo = null;
-     var m = null;
-     var p = null;
-     var k = null;
-     var alpha = null;
-     var beta = null;
+  createToken: async function(metaDataURL) {
+    const { web3 } = this;
+    var attributes = App.parseGraphAttributes();
+    const { createUniqueArt } = this.randomGraphToken.methods;
+    createUniqueArt(web3.utils.asciiToHex(attributes.graphType), attributes.charge, attributes.linkDistance,
+                          attributes.graphVars, metaDataURL).send({gas: 4700000, from: this.account});
+    console.log("Token successfully created");
+  },
 
-     if (graphType == 'BalancedTree') {
-      r = textFields[0].value;
-      h = textFields[1].value;
-     } else if (graphType == 'BarabasiAlbert') {
-      n = textFields[0].value;
-      mo = textFields[1].value;
-      m = textFields[2].value;
-     } else if (graphType == 'ErdosRenyi.np') {
-      n = textFields[0].value;
-      p = textFields[1].value;
-     } else if (graphType == 'ErdosRenyi.nm') {
-      n = textFields[0].value;
-      m = textFields[1].value;
-     } else if (graphType == 'WattsStrogatz.alpha') {
-      n = textFields[0].value;
-      k = textFields[1].value;
-      alpha = textFields[2].value;
-     } else if (graphType == 'WattsStrogatz.beta') {
-      n = textFields[0].value;
-      k = textFields[1].value;
-      beta = textFields[2].value;
-     }
-     return {
-      graphType: graphType,
-      charge: charge,
-      linkDistance: linkDistance,
-      graphVars: [r, h, n, mo, m, p, k, alpha, beta]
-     }
-    }
+  parseGraphAttributes: function() {
+   var e = document.getElementById("graph-type");
+   var graphType = e.options[e.selectedIndex].value;
+   var charge = $("#charge-dist").html();
+   var linkDistance = $("#link-dist").html();
+   var textFields = $("#params input");
+   var r = 0;
+   var h = 0;
+   var n = 0;
+   var mo = 0;
+   var m = 0;
+   var p = 0;
+   var k = 0;
+   var alpha = 0;
+   var beta = 0;
 
-    function createToken(metaDataURL) {
-      let attributes = parseGraphAttributes();
-      const { createUniqueArt } = this.randomGraphToken.methods;
-      createUniqueArt(web3.utils.asciiToHex(attributes.graphType), attributes.charge, attributes.linkDistance,
-        attributes.graphVars, metaDataURL).send({gas: 4700000, from: this.account}).then((f) => {
-          console.log("Token successfully created");  
-        });
-    }
+   if (graphType == 'BalancedTree') {
+    r = parseInt(textFields[0].value);
+    h = parseInt(textFields[1].value);
+   } else if (graphType == 'BarabasiAlbert') {
+    n = parseInt(textFields[0].value);
+    mo = parseInt(textFields[1].value);
+    m = parseInt(textFields[2].value);
+   } else if (graphType == 'ErdosRenyi.np') {
+    n = parseInt(textFields[0].value);
+    p = parseInt(textFields[1].value);
+   } else if (graphType == 'ErdosRenyi.nm') {
+    n = parseInt(textFields[0].value);
+    m = parseInt(textFields[1].value);
+   } else if (graphType == 'WattsStrogatz.alpha') {
+    n = parseInt(textFields[0].value);
+    k = parseInt(textFields[1].value);
+    alpha = parseInt(textFields[2].value);
+   } else if (graphType == 'WattsStrogatz.beta') {
+    n = parseInt(textFields[0].value);
+    k = parseInt(textFields[1].value);
+    beta = parseInt(textFields[2].value);
+   }
+   return {
+    graphType: graphType,
+    charge: charge,
+    linkDistance: linkDistance,
+    graphVars: [r, h, n, mo, m, p, k, alpha, beta]
+   }
   }
-
 };
 
 window.App = App;

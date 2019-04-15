@@ -12,6 +12,7 @@ const App = {
   randomGraphToken: null,
   simpleExchange: null,
   contractAddress: null,
+  contractAddress1:null,
 
   start: async function() {
     const { web3 } = this;
@@ -25,7 +26,6 @@ const App = {
         randomGraphTokenArtifact.abi,
         deployedNetwork.address,
       );
-
       const deployedNetwork1 = simpleExchangeArtifact.networks[networkId];
       this.contractAddress1 = deployedNetwork1.address;
       this.simpleExchange = new web3.eth.Contract(
@@ -48,7 +48,7 @@ const App = {
   renderToken: async function() {
     const { web3 } = this;
     if(new URLSearchParams(window.location.search).get('filter') === 'owned') {
-      App.renderExchangeDetails();
+      await App.renderExchangeDetails();
       const { balanceOf } = this.randomGraphToken.methods;
       var balance = await balanceOf(this.account).call();
       if(balance == 0) {
@@ -63,7 +63,7 @@ const App = {
             $.getJSON(uri, function(data) {
               App.displayToken(id, data, uri);
             });
-          }, 5000);
+          }, 10000);
         }
       }
     } else {
@@ -79,7 +79,7 @@ const App = {
             $.getJSON(uri, function(data) {
               App.displayToken(id, data, uri);
             });
-          }, 5000);
+          }, 10000);
         }
     }
   },
@@ -87,24 +87,82 @@ const App = {
   renderExchangeDetails: async function() {
     const { web3 } = this;
     const { isApprovedForAll } = this.randomGraphToken.methods;
-    console.log(App.simpleExchange.address);
-    /*var approved = await isApprovedForAll(this.account, App.simpleExchange.address).call();
+    var approved = await isApprovedForAll(this.account, App.simpleExchange._address).call();
     if(approved == true) {
       $("#msg").addClass("alert alert-success").html("You have approved the exchange to sell tokens on your behalf!");
       $("#approve-div").hide();
     } else {
       $("#msg").addClass("alert alert-danger").html("Approve the exchange to sell tokens on your behalf");
-    }*/
+    }
   },
 
   displayToken: async function(tokenId, metaData, uri) {
+    const { web3 } = this;
     var node = $("<div/>");
     node.addClass("col-sm-3 text-center col-margin-bottom-1 product");
     node.append("<img src='" + metaData.properties.image.description + "' />");
     node.append("<a href='" + metaData.properties.image.description + "' target='_blank'>Full Size</a>");
     node.append("<br>");
     node.append("<a href='" + uri + "' target='_blank'>Metadata</a>");
+    
+    const { isApprovedForAll } = this.randomGraphToken.methods;
+    var approved = await isApprovedForAll(this.account, App.simpleExchange._address).call();
+    if(approved == true) {
+      await App.renderPriceBox(tokenId, node);
+    } else {
+      const { listingPrice } = this.simpleExchange.methods;
+      var result = await listingPrice(tokenId).call();
+      if(result > 0) {
+        await App.renderPurchaseButton(tokenId, node);      
+      }
+    }
+
     $("#nft-list").append(node);
+  },
+
+  renderPurchaseButton: async function(tokenId, node) {
+    const { web3 } = this;
+    const { listingPrice } = this.simpleExchange.methods;
+    var price = await listingPrice(tokenId).call();
+    var etherPrice = web3.utils.fromWei(price, 'ether');
+    node.append("<div><a href='#' class='btn btn-primary buy-token' onclick='App.buyingToken(" + tokenId + ", " + price + "); return false;' data-token='" + tokenId + "' data-price='" + price + "'>Buy for " + etherPrice + "Ether </a></div>");
+  },
+
+  renderPriceBox: async function(tokenId, node) {
+    const { web3 } = this;
+    const { listingPrice } = this.simpleExchange.methods;
+    var result = await listingPrice(tokenId).call();
+    if(result > 0) {
+      var price = await listingPrice(tokenId).call();
+      node.append("<div>Token sale for " + web3.utils.fromWei(price, 'ether') + " Ether</div>");
+    } else {
+      node.append("<div><input id='token-" + tokenId + "' placeholder='0.1'><a href='#' class='btn btn-primary list-token' onclick='App.listingToken(" + tokenId + "); return false;' data-token='" + tokenId + "'>List for Sale</a></div>");
+    }
+  }, 
+
+  listingToken: async function(tokenId) {
+    const { web3 } = this;
+    const { listToken } = App.simpleExchange.methods;
+    var price = $("#token-" + tokenId).val();
+    await listToken(tokenId, web3.utils.toWei(price, 'ether')).send({gas: 4700000, from: this.account});
+    alert("Your NFT has been listed for sale!");
+    location.reload("/");
+  },
+
+  buyingToken: async function(tokenId, price) {
+    const { web3 } = this;
+    const { buyToken } = this.simpleExchange.methods;
+    await buyToken(tokenId).send({gas: 4700000, value: price,from: this.account});
+    alert("You have successfully purchased the NFT!");
+    location.reload("/");
+  },
+
+  setApproval: async function() {
+    const { web3 } = this;
+    const { setApprovalForAll } = this.randomGraphToken.methods;
+    await setApprovalForAll(App.simpleExchange._address, true).send({gas: 4700000, from: this.account});
+    alert("You have successfully approved the exchange to sell tokens on your behalf!");
+    location.reload();
   },
 
   createNFT: async function() {

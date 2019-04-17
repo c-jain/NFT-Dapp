@@ -1,0 +1,155 @@
+---> (5.2)
+
+	As we updated this course with latest version of truffle, openzeppelin and ipfs, we no more need to clone the project directory from the github link shown in the video. Proceed as follows:
+        1. install truffle, ganache-cli and solidity compiler:
+		-->npm install -g truffle ganache-cli solc
+        2. create new project directory
+		-->mkdir nft-dapp-starter-project
+		-->cd nft-dapp-starter-project
+		-->truffle unbox webpack
+		-->ls
+		-->cd contracts
+		-->rm ConvertLib.sol MetaCoin.sol
+	3. Now we include following files in the app/src directory
+		-->cd app/src
+		--> Sir here, give links to the following files:
+			app.css
+			bootstrap.min.css
+			create-nft.html
+			flask-loader.svg
+			random-graph.js
+			svg-crowbar.js
+
+---> (5.4)
+
+00:22 - The course has been updated to use solidity version 0.5.3. You can specify the contract version like below instead of 0.4.24.
+	pragma solidity >=0.5.0 <0.6.0;
+
+01:06 - Now we are using updated version of openzeppelin. So there are some changes in it, like ERC721Token file changed to ERC721Full. So inherit it like below.
+	contract RandomGraphToken is ERC721Full {
+	}
+
+01:14 - import ERC721Full file like below given.
+	import "./../app/node_modules/openzeppelin-solidity/contracts/token/ERC721/ERC721Full.sol";
+
+01:31 - declare constructor like this.
+	constructor() public ERC721Full("Graph Art Token", "GAT") {
+	}
+
+
+---> (5.6)
+
+01:05 - Add the memory keyword to the _graphAttributes in the createUniqueArt function because the solidity compiler now requires that you explicitly specify it. It should look like this: uint[9] memory _graphAttributes.
+
+02:39 - There is a typo here. It should be: abi.encodePacked.
+
+
+---> (5.9)
+
+01:28 - truffle webpack box has changed now. So there is a file truffle-config.js instead of truffle.js. Your truffle-config.js should looks like below: Sir display/add file here. We also need to configure truffle to use solidity compiler >= v0.5.3, which you can see in truffle-config.js.
+
+Truffle console commands:
+> RandomGraphToken.deployed().then((f) => f.createUniqueArt(web3.utils.asciiToHex('BalancedTree'), 50, 20, [2,5,0,0,0,0,0,0,0]).then((f) => {console.log(f)}))
+
+> RandomGraphToken.deployed().then((f) => f.ownerOf.call(1).then((f) => {console.log(f)}))
+
+> var accounts;
+
+> web3.eth.getAccounts((err, res) => {accounts = res;})
+
+> var account1 = accounts[0]
+
+> account1
+
+> RandomGraphToken.deployed().then((f) => f.balanceOf.call(account1).then((f) => {console.log(f.toNumber())}))
+
+> RandomGraphToken.deployed().then((f) => f.createUniqueArt(web3.utils.asciiToHex('BalancedTree'), 50, 20, [2,5,0,0,0,0,0,0,0]).then((f) => {console.log(f)}))
+
+>RandomGraphToken.deployed().then((f) => f.createUniqueArt(web3.utils.asciiToHex('BalancedTree'), 70, 20, [2,5,0,0,0,0,0,0,0]).then((f) => {console.log(f)}))
+
+
+---> (6.1)
+
+00:06 - Go into app and then run npm run dev
+	
+00.57 - The webpack.config.js file should looks like this now:
+		-->Sir add updated webpack.config.js file here to copy/paste.
+
+
+---> (6.3)
+
+	-->The code is significantly simpler now because we don't have to use then() method chaining. Instead, we can use await to wait for calls to complete and return values.
+
+import "./app.css";
+import Web3 from "web3";
+import randomGraphTokenArtifact from "../../build/contracts/RandomGraphToken.json";
+
+const ipfsAPI = require('ipfs-api');
+const ipfs = ipfsAPI({host: 'ipfs.infura.io', port: '5001', protocol: 'https'});
+ 
+const App = {
+ web3: null,
+ account: null,
+ randomGraphToken: null,
+ contractAddress: null,
+
+ start: async function() {
+  const { web3 } = this;
+
+  try {
+   // get contract instance
+   const networkId = await web3.eth.net.getId();
+   const deployedNetwork = randomGraphTokenArtifact.networks[networkId];
+   this.contractAddress = deployedNetwork.address;
+   this.randomGraphToken = new web3.eth.Contract(
+     randomGraphTokenArtifact.abi,
+     deployedNetwork.address,
+   );
+
+   // get accounts
+   const accounts = await web3.eth.getAccounts();
+   this.account = accounts[0];
+
+  } catch (error) {
+   console.log(error);
+   console.error("Could not connect to contract or chain.");
+  }
+ },
+
+ createNFT: async function() {
+    var blob = saveSVG();
+    console.log(blob);
+    var reader = new window.FileReader();
+    reader.readAsArrayBuffer(blob);
+    setTimeout(function() {
+      var val = Buffer.from(reader.result);
+      const data = {path: 'graph.svg', content: val}
+      ipfs.add(data, {wrapWithDirectory: true})
+      .then((response) => {
+        console.log(response);
+      })
+    }, 5000);  
+  },
+  
+};
+
+window.App = App;
+
+window.addEventListener("load", function() {
+ if (window.ethereum) {
+  // use MetaMask's provider
+  App.web3 = new Web3(window.ethereum);
+  window.ethereum.enable(); // get permission to access accounts
+ } else {
+  console.warn(
+   "No web3 detected. Falling back to http://127.0.0.1:9545. You should remove this fallback when you deploy live",
+  );
+  // fallback - use your fallback strategy (local node / hosted node + in-dapp id mgmt / fail)
+  App.web3 = new Web3(
+   new Web3.providers.HttpProvider("http://127.0.0.1:8545"),
+  );
+ }
+
+ App.start();
+});
+
